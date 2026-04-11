@@ -1,0 +1,218 @@
+import streamlit as st
+import openpyxl
+from openpyxl.worksheet.worksheet import Worksheet
+import pandas as pd
+import io
+import re
+import zipfile
+import plotly.express as px
+from fpdf import FPDF
+from datetime import datetime, timedelta
+
+# --- BRANDING & CONSTANTS ---
+COLOR_PRIMARY = (16, 43, 85) 
+COLOR_SECONDARY = (212, 175, 55) 
+COLOR_TEXT = (50, 50, 50) 
+COLOR_LINE = (230, 230, 230) 
+
+class AmaniInvoice(FPDF):
+    def header(self):
+        self.set_font("Helvetica", "B", 24)
+        self.set_text_color(*COLOR_PRIMARY)
+        self.cell(100, 10, "AMANI DAIRIES", ln=0)
+        self.set_font("Helvetica", "I", 10)
+        self.set_text_color(100, 100, 100)
+        self.cell(90, 10, "Reliable - Fresh - Local", ln=1, align="R")
+        self.set_draw_color(*COLOR_SECONDARY)
+        self.set_line_width(0.8)
+        self.line(10, 22, 200, 22)
+        self.ln(10)
+
+def create_branded_pdf(cust_all_data, billed_month_str):
+    def make_safe(t):
+        # Fixes the character errors by replacing dots, bullets, and dashes with safe symbols
+        t = str(t).replace('\u2022', '-').replace('\u2013', '-').replace('\u2014', '-').replace('\u2219', '.')
+        return re.sub(r'[^\x00-\x7f]', r'', t).encode('latin-1', 'replace').decode('latin-1')
+
+    pdf = AmaniInvoice()
+    pdf.add_page()
+    
+    # 1. INFO BOX
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(*COLOR_PRIMARY)
+    pdf.set_xy(10, 30)
+    pdf.cell(100, 5, "BILL TO:", ln=1)
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.set_text_color(*COLOR_TEXT)
+    pdf.cell(100, 8, make_safe(cust_all_data['name']), ln=1)
+    
+    pdf.set_xy(140, 30)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(*COLOR_PRIMARY)
+    pdf.cell(50, 5, "BILLING PERIOD:", ln=1, align="R")
+    pdf.set_xy(140, 35)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(*COLOR_TEXT)
+    pdf.cell(50, 8, make_safe(billed_month_str).upper(), ln=1, align="R")
+    pdf.ln(20)
+
+    # 2. FINANCIAL TABLE
+    pdf.set_fill_color(*COLOR_PRIMARY)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(80, 10, "  Description", 1, 0, "L", True)
+    pdf.cell(30, 10, "Total Qty (L)", 1, 0, "C", True)
+    pdf.cell(30, 10, "Rate (KES)", 1, 0, "C", True)
+    pdf.cell(50, 10, "Total (KES)  ", 1, 1, "R", True)
+
+    pdf.set_text_color(*COLOR_TEXT)
+    pdf.set_font("Helvetica", "", 11)
+    pdf.cell(80, 12, "  Fresh Milk Supplied", 1, 0, "L")
+    pdf.cell(30, 12, f"{cust_all_data['billed_qty']:.1f}", 1, 0, "C")
+    pdf.cell(30, 12, f"{cust_all_data['rate']:.2f}", 1, 0, "C")
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(50, 12, f"{cust_all_data['total_bill']:.2f}  ", 1, 1, "R")
+    
+    # 3. TOTALS
+    pdf.ln(2)
+    pdf.set_x(120)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(40, 8, "Sub-Total:", 0, 0, "R")
+    pdf.cell(40, 8, f"{cust_all_data['total_bill']:.2f}", 0, 1, "R")
+    pdf.set_x(120)
+    pdf.cell(40, 8, "Pre-Paid:", 0, 0, "R")
+    pdf.cell(40, 8, f"- {cust_all_data['prepaid']:.2f}", 0, 1, "R")
+    pdf.set_x(120)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(*COLOR_PRIMARY)
+    pdf.cell(40, 12, "TOTAL DUE:", "T", 0, "R")
+    pdf.cell(40, 12, f"KES {cust_all_data['balance']:.2f}", "T", 1, "R")
+
+    # 4. SPOILT MILK DYNAMIC NOTICE
+    if cust_all_data['spoilt_qty'] > 0:
+        pdf.ln(10)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_text_color(200, 0, 0)
+        pdf.cell(0, 6, "SPOILT MILK NOTICE:", ln=1)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(*COLOR_TEXT)
+        pdf.multi_cell(0, 5, f"We recorded {cust_all_data['spoilt_qty']:.1f} Liters of spoilt milk. This has been excluded from your final total.")
+
+    # 5. FOOTER PAYMENT
+    pdf.set_y(-50)
+    pdf.set_fill_color(252, 248, 227)
+    pdf.set_draw_color(*COLOR_SECONDARY)
+    pdf.rect(10, pdf.get_y(), 190, 25, 'FD')
+    pdf.set_y(pdf.get_y() + 4)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(*COLOR_PRIMARY)
+    pdf.cell(190, 5, "PAY VIA MPESA POCHI LA BIASHARA", ln=1, align="C")
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(190, 10, "0722 686 720", ln=1, align="C")
+
+    return pdf.output()
+
+def clean_num(value):
+    if value is None or str(value).strip() in ["", "-", "None"]:
+        return 0.0
+    try:
+        return float(value)
+    except:
+        return 0.0
+
+def get_month_data(ws):
+    all_data = []
+    if not isinstance(ws, Worksheet):
+        return []
+
+    # Starts at Column J (Index 10) and stops at the first empty Header
+    for col in range(10, ws.max_column + 1):
+        name = ws.cell(row=2, column=col).value
+        
+        # Stops scanning if the column is blank or is a summary column
+        if not name or any(skip in str(name) for skip in ["Total", "Unaccounted", "Summary", "Fridge"]): 
+            break
+        
+        rate = clean_num(ws.cell(row=3, column=col).value)
+        prepaid = clean_num(ws.cell(row=37, column=col).value)
+        
+        total_qty = 0
+        spoilt_qty = 0
+
+        for row in range(4, 35):
+            cell = ws.cell(row=row, column=col)
+            val = clean_num(cell.value)
+            
+            fill = str(cell.fill.start_color.index)
+            if fill in ['FFFF0000', '2'] and val > 0:
+                spoilt_qty += val
+            else:
+                total_qty += val
+
+        revenue = total_qty * rate
+        lost_rev = spoilt_qty * rate
+        
+        all_data.append({
+            "name": name, "billed_qty": total_qty, "spoilt_qty": spoilt_qty,
+            "rate": rate, "total_bill": revenue, "lost_revenue": lost_rev,
+            "prepaid": prepaid, "balance": revenue - prepaid
+        })
+    return all_data
+
+# --- APP INTERFACE ---
+st.set_page_config(page_title="Amani Dairies Dashboard", layout="wide")
+st.title("🥛 Amani Dairies Performance Tracker")
+
+uploaded_file = st.file_uploader("Upload Excel Workbook", type=["xlsx", "xlsm"])
+
+if uploaded_file:
+    wb = openpyxl.load_workbook(uploaded_file, data_only=True)
+    available_sheets = [s for s in wb.sheetnames if isinstance(wb[s], Worksheet) and any(char.isdigit() for char in s)]
+    
+    with st.spinner("Crunching Numbers..."):
+        all_months_results = {sheet: get_month_data(wb[sheet]) for sheet in available_sheets if get_month_data(wb[sheet])}
+
+    if not all_months_results:
+        st.error("No valid data found. Ensure your client headers start in Column J.")
+    else:
+        # Renamed Header based on your request
+        st.header("📊 Cumulative Business Overview")
+        total_rev = sum(sum(c['total_bill'] for c in data) for data in all_months_results.values())
+        total_loss = sum(sum(c['lost_revenue'] for c in data) for data in all_months_results.values())
+        total_liters = sum(sum(c['billed_qty'] for c in data) for data in all_months_results.values())
+        
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Lifetime Revenue", f"KES {total_rev:,.0f}")
+        m2.metric("Revenue Lost (Spoilage)", f"KES {total_loss:,.0f}", delta=f"{(total_loss/(total_rev+1)*100):.1f}% Loss", delta_color="inverse")
+        m3.metric("Liters Supplied", f"{total_liters:,.1f} L")
+        m4.metric("Active Billing Months", len(all_months_results))
+
+        st.divider()
+        
+        # Charts
+        chart_data = [{"Month": m, "Revenue": sum(c['total_bill'] for c in data), "Loss": sum(c['lost_revenue'] for c in data)} 
+                      for m, data in all_months_results.items()]
+        df_trends = pd.DataFrame(chart_data)
+        
+        c_left, c_right = st.columns(2)
+        with c_left:
+            st.plotly_chart(px.bar(df_trends, x="Month", y=["Revenue", "Loss"], barmode="group", title="Revenue vs. Spoilage Loss", color_discrete_map={"Revenue": "#102B55", "Loss": "#C80000"}), use_container_width=True)
+        with c_right:
+            cust_totals = {}
+            for m_data in all_months_results.values():
+                for c in m_data:
+                    cust_totals[c['name']] = cust_totals.get(c['name'], 0) + c['total_bill']
+            df_cust = pd.DataFrame(list(cust_totals.items()), columns=['Customer', 'Revenue']).sort_values("Revenue", ascending=False).head(10)
+            st.plotly_chart(px.pie(df_cust, values='Revenue', names='Customer', title="Top 10 High-Value Clients"), use_container_width=True)
+
+        st.divider()
+        target_month = st.selectbox("View Monthly Detail & Generate Invoices:", list(all_months_results.keys()))
+        month_df = pd.DataFrame(all_months_results[target_month])
+        st.dataframe(month_df[['name', 'billed_qty', 'spoilt_qty', 'total_bill', 'prepaid', 'balance']], use_container_width=True)
+
+        if st.button(f"📥 Download All Invoices for {target_month}"):
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w") as zf:
+                for cust in all_months_results[target_month]:
+                    zf.writestr(f"{cust['name']}.pdf", create_branded_pdf(cust, target_month))
+            st.download_button("💾 Save ZIP File", zip_buffer.getvalue(), f"Amani_Invoices_{target_month}.zip")
