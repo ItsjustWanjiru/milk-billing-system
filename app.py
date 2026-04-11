@@ -74,7 +74,7 @@ def create_branded_pdf(cust_all_data, billed_month_str):
         return f"{val:,.2f}"
 
     pdf = AmaniInvoice(orientation='P', unit='mm', format='A4')
-    pdf.set_auto_page_break(auto=False)
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
     # 1. INFO BOX
@@ -137,9 +137,9 @@ def create_branded_pdf(cust_all_data, billed_month_str):
     pdf.cell(40, 10, "TOTAL DUE:", "T", 0, "R")
     pdf.cell(40, 10, f"KES {fmt(cust_all_data['balance'])}", "T", 1, "R")
 
-    # 4. EXACT SPOILT NOTICE
+    # 4. SPOILT NOTICE
     if cust_all_data['spoilt_qty'] > 0:
-        pdf.ln(4)
+        pdf.ln(8)
         pdf.set_font("Helvetica", "B", 8)
         pdf.set_text_color(200, 0, 0)
         pdf.cell(0, 5, "SPOILT MILK NOTICE (Excluded from Total Bill):", ln=1)
@@ -148,12 +148,14 @@ def create_branded_pdf(cust_all_data, billed_month_str):
         spoilt_str = ", ".join([f"Day {d} ({q}L)" for d, q in cust_all_data['spoilt_details']])
         pdf.cell(0, 4, f"The following recorded milk was spoilt: {spoilt_str}. Total: {cust_all_data['spoilt_qty']:.1f}L.", ln=1)
 
-    # 5. PAYMENT BOX (Fixed Single Page Position)
-    pdf.set_y(235)
+    # 5. PAYMENT BOX (Now floating immediately below)
+    pdf.ln(15)
+    current_y = pdf.get_y()
     pdf.set_fill_color(252, 248, 227)
     pdf.set_draw_color(*COLOR_SECONDARY)
-    pdf.rect(10, pdf.get_y(), 190, 25, 'FD')
-    pdf.set_y(pdf.get_y() + 3)
+    pdf.rect(10, current_y, 190, 25, 'FD')
+    
+    pdf.set_y(current_y + 3)
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(*COLOR_PRIMARY)
     pdf.cell(190, 4, "PAYMENT METHODS", ln=1, align="C")
@@ -162,12 +164,13 @@ def create_branded_pdf(cust_all_data, billed_month_str):
     pdf.set_font("Helvetica", "B", 18)
     pdf.cell(190, 8, "0722 686 720", ln=1, align="C")
     
-    pdf.set_y(268)
+    pdf.ln(12)
     pdf.set_font("Helvetica", "B", 10)
     pdf.cell(190, 8, "THANK-YOU FOR YOUR CONTINUED SUPPORT!", 0, 0, "C")
 
     return pdf.output()
 
+# --- HELPER FUNCTIONS REMAIN THE SAME ---
 def clean_num(value):
     if value is None or str(value).strip() in ["", "-", "None"]:
         return 0.0
@@ -208,7 +211,6 @@ def get_month_data(ws):
                 total_qty += val
 
         revenue = total_qty * rate
-        
         all_data.append({
             "name": name, "billed_qty": total_qty, "spoilt_qty": spoilt_qty,
             "rate": rate, "total_bill": revenue, "lost_revenue": spoilt_qty * rate,
@@ -217,7 +219,7 @@ def get_month_data(ws):
         })
     return all_data
 
-# --- APP INTERFACE ---
+# --- APP INTERFACE REMAINS THE SAME ---
 st.set_page_config(page_title="Amani Dairies Dashboard", layout="wide")
 st.title("🥛 Amani Dairies Performance Tracker")
 
@@ -227,7 +229,7 @@ if uploaded_file:
     wb = openpyxl.load_workbook(uploaded_file, data_only=True)
     available_sheets = [s for s in wb.sheetnames if isinstance(wb[s], Worksheet) and any(char.isdigit() for char in s)]
     
-    with st.spinner("Crunching Numbers..."):
+    with st.spinner("Crunching Data..."):
         all_months_results = {sheet: get_month_data(wb[sheet]) for sheet in available_sheets if get_month_data(wb[sheet])}
 
     if not all_months_results:
