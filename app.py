@@ -74,6 +74,10 @@ def create_branded_pdf(cust_all_data, billed_month_str):
         t = str(t).replace('\u2022', '-').replace('\u2013', '-').replace('\u2014', '-').replace('\u2219', '.')
         return re.sub(r'[^\x00-\x7f]', r'', t).encode('latin-1', 'replace').decode('latin-1')
 
+    # Formatting helper for accounting (e.g., 2,340.00)
+    def fmt(val):
+        return f"{val:,.2f}"
+
     pdf = AmaniInvoice()
     pdf.add_page()
     
@@ -106,7 +110,7 @@ def create_branded_pdf(cust_all_data, billed_month_str):
     pdf.set_xy(10, 65)
     pdf.draw_calendar_grid(cust_all_data['daily_liters'], billed_month_str)
 
-    # 2. FINANCIAL TABLE
+    # 2. FINANCIAL TABLE (Accounting Format Applied)
     pdf.set_fill_color(*COLOR_PRIMARY)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Helvetica", "B", 10)
@@ -119,24 +123,24 @@ def create_branded_pdf(cust_all_data, billed_month_str):
     pdf.set_font("Helvetica", "", 11)
     pdf.cell(80, 12, "  Fresh Milk Supplied", 1, 0, "L")
     pdf.cell(30, 12, f"{cust_all_data['billed_qty']:.1f}", 1, 0, "C")
-    pdf.cell(30, 12, f"{cust_all_data['rate']:.2f}", 1, 0, "C")
+    pdf.cell(30, 12, f"{fmt(cust_all_data['rate'])}", 1, 0, "C") # Fixed Rate
     pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(50, 12, f"{cust_all_data['total_bill']:.2f}  ", 1, 1, "R")
+    pdf.cell(50, 12, f"{fmt(cust_all_data['total_bill'])}  ", 1, 1, "R") # Fixed Total
     
-    # 3. TOTALS
+    # 3. TOTALS (Accounting Format Applied)
     pdf.ln(2)
     pdf.set_x(120)
     pdf.set_font("Helvetica", "", 10)
     pdf.cell(40, 8, "Sub-Total:", 0, 0, "R")
-    pdf.cell(40, 8, f"{cust_all_data['total_bill']:.2f}", 0, 1, "R")
+    pdf.cell(40, 8, f"{fmt(cust_all_data['total_bill'])}", 0, 1, "R")
     pdf.set_x(120)
     pdf.cell(40, 8, "Pre-Paid:", 0, 0, "R")
-    pdf.cell(40, 8, f"- {cust_all_data['prepaid']:.2f}", 0, 1, "R")
+    pdf.cell(40, 8, f"- {fmt(cust_all_data['prepaid'])}", 0, 1, "R")
     pdf.set_x(120)
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(*COLOR_PRIMARY)
     pdf.cell(40, 12, "TOTAL DUE:", "T", 0, "R")
-    pdf.cell(40, 12, f"KES {cust_all_data['balance']:.2f}", "T", 1, "R")
+    pdf.cell(40, 12, f"KES {fmt(cust_all_data['balance'])}", "T", 1, "R")
 
     # 4. SPOILT NOTICE
     if cust_all_data['spoilt_qty'] > 0:
@@ -145,7 +149,7 @@ def create_branded_pdf(cust_all_data, billed_month_str):
         pdf.set_text_color(100, 100, 100)
         pdf.cell(0, 5, f"Note: {cust_all_data['spoilt_qty']:.1f} Liters were recorded as spoilt and were not included in this billing.", ln=1)
 
-    # 5. PAYMENT BOX
+    # 5. FOOTER (M-Pesa Box)
     pdf.set_y(-60)
     pdf.set_fill_color(252, 248, 227)
     pdf.set_draw_color(*COLOR_SECONDARY)
