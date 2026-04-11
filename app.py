@@ -28,9 +28,49 @@ class AmaniInvoice(FPDF):
         self.line(10, 22, 200, 22)
         self.ln(10)
 
+    def draw_calendar_grid(self, daily_data, billed_month_str):
+        try:
+            base_date = datetime.strptime(billed_month_str, "%Y %B")
+        except:
+            base_date = datetime.now()
+        
+        self.set_font("Helvetica", "B", 8)
+        self.set_text_color(*COLOR_PRIMARY)
+        self.cell(0, 8, "DAILY CONSUMPTION BREAKDOWN", ln=1)
+        
+        w_small = 5.8 
+        h = 6 
+        self.set_fill_color(245, 245, 245)
+        self.set_text_color(0,0,0)
+        
+        # Date Row
+        self.cell(20, h, "Date", 1, 0, 'C', True)
+        for d in range(1, 32):
+            self.cell(w_small, h, str(d), 1, 0, 'C', True)
+        self.ln(h)
+        
+        # Day Row
+        self.cell(20, h, "Day", 1, 0, 'C')
+        self.set_font("Helvetica", "", 7)
+        for d in range(1, 32):
+            try:
+                current_date = base_date + timedelta(days=d-1)
+                day_str = current_date.strftime("%a")
+            except:
+                day_str = ""
+            self.cell(w_small, h, day_str, 1, 0, 'C')
+        self.ln(h)
+        
+        # Litres Row
+        self.set_font("Helvetica", "B", 8)
+        self.cell(20, h+2, "Litres", 1, 0, 'C')
+        for d in range(1, 32):
+            val = daily_data.get(d, 0)
+            self.cell(w_small, h+2, str(int(val)) if val > 0 else "-", 1, 0, 'C')
+        self.ln(h+10)
+
 def create_branded_pdf(cust_all_data, billed_month_str):
     def make_safe(t):
-        # Fixes the character errors by replacing dots, bullets, and dashes with safe symbols
         t = str(t).replace('\u2022', '-').replace('\u2013', '-').replace('\u2014', '-').replace('\u2219', '.')
         return re.sub(r'[^\x00-\x7f]', r'', t).encode('latin-1', 'replace').decode('latin-1')
 
@@ -54,7 +94,17 @@ def create_branded_pdf(cust_all_data, billed_month_str):
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(*COLOR_TEXT)
     pdf.cell(50, 8, make_safe(billed_month_str).upper(), ln=1, align="R")
-    pdf.ln(20)
+    
+    # Balance Due Sticker
+    pdf.set_xy(135, 45)
+    pdf.set_fill_color(255, 255, 255)
+    pdf.set_draw_color(0,0,0)
+    pdf.set_text_color(200, 0, 0)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(60, 10, "BALANCE DUE", 1, 1, "C")
+    
+    pdf.set_xy(10, 65)
+    pdf.draw_calendar_grid(cust_all_data['daily_liters'], billed_month_str)
 
     # 2. FINANCIAL TABLE
     pdf.set_fill_color(*COLOR_PRIMARY)
@@ -88,27 +138,30 @@ def create_branded_pdf(cust_all_data, billed_month_str):
     pdf.cell(40, 12, "TOTAL DUE:", "T", 0, "R")
     pdf.cell(40, 12, f"KES {cust_all_data['balance']:.2f}", "T", 1, "R")
 
-    # 4. SPOILT MILK DYNAMIC NOTICE
+    # 4. SPOILT NOTICE
     if cust_all_data['spoilt_qty'] > 0:
-        pdf.ln(10)
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.set_text_color(200, 0, 0)
-        pdf.cell(0, 6, "SPOILT MILK NOTICE:", ln=1)
-        pdf.set_font("Helvetica", "", 9)
-        pdf.set_text_color(*COLOR_TEXT)
-        pdf.multi_cell(0, 5, f"We recorded {cust_all_data['spoilt_qty']:.1f} Liters of spoilt milk. This has been excluded from your final total.")
+        pdf.ln(5)
+        pdf.set_font("Helvetica", "I", 8)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(0, 5, f"Note: {cust_all_data['spoilt_qty']:.1f} Liters were recorded as spoilt and were not included in this billing.", ln=1)
 
-    # 5. FOOTER PAYMENT
-    pdf.set_y(-50)
+    # 5. PAYMENT BOX
+    pdf.set_y(-60)
     pdf.set_fill_color(252, 248, 227)
     pdf.set_draw_color(*COLOR_SECONDARY)
-    pdf.rect(10, pdf.get_y(), 190, 25, 'FD')
-    pdf.set_y(pdf.get_y() + 4)
+    pdf.rect(10, pdf.get_y(), 190, 30, 'FD')
+    pdf.set_y(pdf.get_y() + 5)
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(*COLOR_PRIMARY)
-    pdf.cell(190, 5, "PAY VIA MPESA POCHI LA BIASHARA", ln=1, align="C")
-    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(190, 5, "PAYMENT METHODS", ln=1, align="C")
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(190, 8, "M-PESA POCHI LA BIASHARA", ln=1, align="C")
+    pdf.set_font("Helvetica", "B", 20)
     pdf.cell(190, 10, "0722 686 720", ln=1, align="C")
+    
+    pdf.set_y(-20)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(190, 10, "THANK-YOU FOR YOUR CONTINUED SUPPORT!", 0, 0, "C")
 
     return pdf.output()
 
@@ -125,11 +178,9 @@ def get_month_data(ws):
     if not isinstance(ws, Worksheet):
         return []
 
-    # Starts at Column J (Index 10) and stops at the first empty Header
+    # STARTS AT COLUMN J (Index 10)
     for col in range(10, ws.max_column + 1):
         name = ws.cell(row=2, column=col).value
-        
-        # Stops scanning if the column is blank or is a summary column
         if not name or any(skip in str(name) for skip in ["Total", "Unaccounted", "Summary", "Fridge"]): 
             break
         
@@ -138,10 +189,13 @@ def get_month_data(ws):
         
         total_qty = 0
         spoilt_qty = 0
+        daily_dict = {}
 
         for row in range(4, 35):
             cell = ws.cell(row=row, column=col)
             val = clean_num(cell.value)
+            day = row - 3
+            daily_dict[day] = val
             
             fill = str(cell.fill.start_color.index)
             if fill in ['FFFF0000', '2'] and val > 0:
@@ -155,7 +209,8 @@ def get_month_data(ws):
         all_data.append({
             "name": name, "billed_qty": total_qty, "spoilt_qty": spoilt_qty,
             "rate": rate, "total_bill": revenue, "lost_revenue": lost_rev,
-            "prepaid": prepaid, "balance": revenue - prepaid
+            "prepaid": prepaid, "balance": revenue - prepaid,
+            "daily_liters": daily_dict
         })
     return all_data
 
@@ -169,13 +224,12 @@ if uploaded_file:
     wb = openpyxl.load_workbook(uploaded_file, data_only=True)
     available_sheets = [s for s in wb.sheetnames if isinstance(wb[s], Worksheet) and any(char.isdigit() for char in s)]
     
-    with st.spinner("Crunching Numbers..."):
+    with st.spinner("Processing Business Data..."):
         all_months_results = {sheet: get_month_data(wb[sheet]) for sheet in available_sheets if get_month_data(wb[sheet])}
 
     if not all_months_results:
         st.error("No valid data found. Ensure your client headers start in Column J.")
     else:
-        # Renamed Header based on your request
         st.header("📊 Cumulative Business Overview")
         total_rev = sum(sum(c['total_bill'] for c in data) for data in all_months_results.values())
         total_loss = sum(sum(c['lost_revenue'] for c in data) for data in all_months_results.values())
@@ -188,8 +242,6 @@ if uploaded_file:
         m4.metric("Active Billing Months", len(all_months_results))
 
         st.divider()
-        
-        # Charts
         chart_data = [{"Month": m, "Revenue": sum(c['total_bill'] for c in data), "Loss": sum(c['lost_revenue'] for c in data)} 
                       for m, data in all_months_results.items()]
         df_trends = pd.DataFrame(chart_data)
