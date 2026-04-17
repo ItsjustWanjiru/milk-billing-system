@@ -16,7 +16,7 @@ COLOR_PRIMARY = (16, 43, 85)
 COLOR_SECONDARY = (212, 175, 55) 
 COLOR_TEXT = (50, 50, 50) 
 
-# Base Link
+# Base Link - We use 'export' to get the entire file
 BASE_URL = "https://docs.google.com/spreadsheets/d/14ykcy9qOUPu-wLp7Xzp6SJWqVmXUzGAT/export?format=xlsx"
 
 class AmaniInvoice(FPDF):
@@ -34,9 +34,12 @@ class AmaniInvoice(FPDF):
 
     def draw_calendar_grid(self, daily_data, billed_month_str):
         try:
+            # Try to parse month/year for the calendar days
             base_date = datetime.strptime(billed_month_str, "%Y %B")
         except:
-            base_date = datetime.now()
+            try: base_date = datetime.strptime(billed_month_str, "%B, %Y")
+            except: base_date = datetime.now()
+            
         self.set_font("Helvetica", "B", 8); self.set_text_color(*COLOR_PRIMARY)
         self.cell(0, 6, "DAILY CONSUMPTION BREAKDOWN", ln=1)
         w_small = 5.8; h = 5 
@@ -108,7 +111,7 @@ def clean_num(value):
 def get_month_data(ws):
     all_data = []
     if not isinstance(ws, Worksheet): return []
-    # Logic: Only process if cell J2 has a value (valid client header)
+    # Verify Column J Row 2 has client data
     if not ws.cell(row=2, column=10).value: return []
     
     for col in range(10, ws.max_column + 1):
@@ -141,9 +144,10 @@ c1, c2 = st.columns([1, 1])
 with c1:
     if st.button("🔄 Sync with Google Sheet", use_container_width=True):
         try:
-            with st.spinner("Fetching absolute latest workbook..."):
-                refresh_url = f"{BASE_URL}&cache_bust={int(time.time())}"
-                response = requests.get(refresh_url)
+            with st.spinner("Fetching absolute latest workbook (2024-2026)..."):
+                # Force refresh using a longer timeout and timestamp
+                refresh_url = f"{BASE_URL}&t={int(time.time())}"
+                response = requests.get(refresh_url, timeout=30)
                 if response.status_code == 200:
                     st.session_state['data_file'] = io.BytesIO(response.content)
                     st.success("Full Cloud Sync Successful!")
@@ -155,58 +159,58 @@ with c2:
     if uploaded_file: st.session_state['data_file'] = uploaded_file
 
 if 'data_file' in st.session_state:
-    # IMPORTANT: data_only=True is required to read calculated values
     wb = openpyxl.load_workbook(st.session_state['data_file'], data_only=True)
     
     available_sheets = []
-    # BROAD DETECTION: We iterate through every sheet in the workbook
+    # Logic: Collect every sheet that isn't internal
     for s in wb.sheetnames:
         name_lower = s.lower()
-        # EXCLUSION LIST: Skip sheets that are clearly not billing months
         is_internal = any(x in name_lower for x in ["summary", "data", "client", "total", "internal", "template"])
-        
-        # If it's not internal, we consider it a candidate
         if not is_internal:
             available_sheets.append(s)
     
-    with st.spinner(f"Analyzing {len(available_sheets)} sheets..."):
+    with st.spinner(f"Scanning {len(available_sheets)} possible months..."):
         all_months_results = {}
         for sheet in available_sheets:
             data = get_month_data(wb[sheet])
-            if data: # Only add if the sheet actually contains client data
+            if data:
                 all_months_results[sheet] = data
 
     if not all_months_results:
-        st.warning("No valid billing sheets detected. Ensure Column J (Row 2) has a client name.")
+        st.warning("No valid billing sheets detected. Ensure Column J has client names.")
     else:
-        st.header("📊 Cumulative Business Overview")
+        # --- GLOBAL METRICS ---
         total_rev = sum(sum(c['total_bill'] for c in data) for data in all_months_results.values())
         total_loss = sum(sum(c['lost_revenue'] for c in data) for data in all_months_results.values())
         total_liters = sum(sum(c['billed_qty'] for c in data) for data in all_months_results.values())
         
+        st.header("📊 Global Performance Summary")
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Lifetime Revenue", f"KES {total_rev:,.0f}")
-        m2.metric("Revenue Lost (Spoilage)", f"KES {total_loss:,.0f}", delta=f"{(total_loss/(total_rev+1)*100):.1f}% Loss", delta_color="inverse")
-        m3.metric("Liters Supplied", f"{total_liters:,.1f} L")
-        m4.metric("Active Billing Months", len(all_months_results))
+        m1.metric("Total Life Revenue", f"KES {total_rev:,.0f}")
+        m2.metric("Revenue Lost", f"KES {total_loss:,.0f}", delta=f"{(total_loss/(total_rev+1)*100):.1f}% Loss", delta_color="inverse")
+        m3.metric("Total Liters Sold", f"{total_liters:,.1f} L")
+        m4.metric("Active Months", len(all_months_results))
 
         st.divider()
-        chart_data = [{"Month": m, "Revenue": sum(c['total_bill'] for c in data), "Loss": sum(c['lost_revenue'] for c in data)} for m, data in all_months_results.items()]
-        df_trends = pd.DataFrame(chart_data)
-        c_left, c_right = st.columns(2)
-        with c_left: st.plotly_chart(px.bar(df_trends, x="Month", y=["Revenue", "Loss"], barmode="group", title="Revenue vs. Spoilage Loss", color_discrete_map={"Revenue": "#102B55", "Loss": "#C80000"}), use_container_width=True)
-        with c_right:
-            cust_totals = {}
-            for m_data in all_months_results.values():
-                for c in m_data: cust_totals[c['name']] = cust_totals.get(c['name'], 0) + c['total_bill']
-            df_cust = pd.DataFrame(list(cust_totals.items()), columns=['Customer', 'Revenue']).sort_values("Revenue", ascending=False).head(10)
-            st.plotly_chart(px.pie(df_cust, values='Revenue', names='Customer', title="Top 10 High-Value Clients"), use_container_width=True)
-
-        st.divider()
-        # Sort months so the most recent is at the top
-        sorted_months = sorted(list(all_months_results.keys()), reverse=True)
-        target_month = st.selectbox("Select Month for Invoices:", sorted_months)
         
+        # --- CHRONOLOGICAL SORTING ---
+        def sort_key(name):
+            # Attempt to extract year and month for proper sorting
+            year_match = re.search(r'(20\d{2})', name)
+            year = int(year_match.group(1)) if year_match else 0
+            # Assign weights to months to sort January -> December
+            months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+            month_weight = 0
+            for i, m in enumerate(months):
+                if m in name.lower():
+                    month_weight = i + 1
+                    break
+            return (year, month_weight)
+
+        sorted_months = sorted(list(all_months_results.keys()), key=sort_key, reverse=True)
+        
+        # --- UI LAYOUT ---
+        target_month = st.selectbox("Select Month for Invoices:", sorted_months)
         month_df = pd.DataFrame(all_months_results[target_month])
         st.dataframe(month_df[['name', 'billed_qty', 'spoilt_qty', 'total_bill', 'prepaid', 'balance']], use_container_width=True)
 
