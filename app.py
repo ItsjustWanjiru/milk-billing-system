@@ -16,7 +16,6 @@ COLOR_PRIMARY = (16, 43, 85)
 COLOR_SECONDARY = (212, 175, 55) 
 COLOR_TEXT = (50, 50, 50) 
 
-# Your Direct Link (Converted to Export format)
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/14ykcy9qOUPu-wLp7Xzp6SJWqVmXUzGAT/export?format=xlsx"
 
 class AmaniInvoice(FPDF):
@@ -33,15 +32,18 @@ class AmaniInvoice(FPDF):
         self.ln(6)
 
     def draw_calendar_grid(self, daily_data, billed_month_str):
+        # Improved date parsing to handle multiple formats like "2026 April" or "May, 2024"
         try:
-            # Flexible date parsing for various formats
             year_match = re.search(r'20\d{2}', billed_month_str)
-            y = int(year_match.group(0)) if year_match else datetime.now().year
-            base_date = datetime(y, 1, 1) # Defaulting to Jan of that year if month parse fails
-            for m_idx, m_name in enumerate(["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"]):
-                if m_name in billed_month_str.lower():
-                    base_date = datetime(y, m_idx + 1, 1)
+            year = int(year_match.group(0)) if year_match else datetime.now().year
+            
+            month_map = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,"jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
+            month = 1
+            for m_key, m_val in month_map.items():
+                if m_key in billed_month_str.lower():
+                    month = m_val
                     break
+            base_date = datetime(year, month, 1)
         except:
             base_date = datetime.now()
         
@@ -96,17 +98,11 @@ def create_branded_pdf(cust_all_data, billed_month_str):
     pdf.set_x(120); pdf.cell(40, 6, "Pre-Paid:", 0, 0, "R"); pdf.cell(40, 6, f"- {fmt(cust_all_data['prepaid'])}", 0, 1, "R")
     pdf.set_x(120); pdf.set_font("Helvetica", "B", 11); pdf.set_text_color(*COLOR_PRIMARY)
     pdf.cell(40, 10, "TOTAL DUE:", "T", 0, "R"); pdf.cell(40, 10, f"KES {fmt(cust_all_data['balance'])}", "T", 1, "R")
-    if cust_all_data['spoilt_qty'] > 0:
-        pdf.ln(8); pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(200, 0, 0)
-        pdf.cell(0, 5, "SPOILT MILK NOTICE (Excluded from Total Bill):", ln=1)
-        pdf.set_font("Helvetica", "", 8); pdf.set_text_color(*COLOR_TEXT)
-        spoilt_str = ", ".join([f"Day {d} ({q}L)" for d, q in cust_all_data['spoilt_details']])
-        pdf.cell(0, 4, f"The following recorded milk was spoilt: {spoilt_str}. Total: {cust_all_data['spoilt_qty']:.1f}L.", ln=1)
+    
     pdf.ln(15); current_y = pdf.get_y(); pdf.set_fill_color(252, 248, 227); pdf.set_draw_color(*COLOR_SECONDARY); pdf.rect(10, current_y, 190, 25, 'FD')
     pdf.set_y(current_y + 3); pdf.set_font("Helvetica", "B", 9); pdf.set_text_color(*COLOR_PRIMARY); pdf.cell(190, 4, "PAYMENT METHODS", ln=1, align="C")
     pdf.set_font("Helvetica", "B", 12); pdf.cell(190, 6, "M-PESA POCHI LA BIASHARA", ln=1, align="C")
     pdf.set_font("Helvetica", "B", 18); pdf.cell(190, 8, "0722 686 720", ln=1, align="C")
-    pdf.ln(12); pdf.set_font("Helvetica", "B", 10); pdf.cell(190, 8, "THANK-YOU FOR YOUR CONTINUED SUPPORT!", 0, 0, "C")
     return pdf.output()
 
 def clean_num(value):
@@ -118,13 +114,14 @@ def get_month_data(ws):
     all_data = []
     if not isinstance(ws, Worksheet): return []
     
-    # SCAN Row 2 to find where clients start (usually Col 10/J)
+    # Dynamically find the start column (scans first 15 columns for the first client name)
     start_col = 0
-    for c in range(1, 20):
+    for c in range(1, 15):
         val = ws.cell(row=2, column=c).value
         if val and not any(x in str(val) for x in ["Date", "Day", "Milk", "Total"]):
             start_col = c
             break
+    
     if start_col == 0: return []
 
     for col in range(start_col, ws.max_column + 1):
@@ -133,25 +130,18 @@ def get_month_data(ws):
         
         rate = clean_num(ws.cell(row=3, column=col).value)
         prepaid = clean_num(ws.cell(row=37, column=col).value)
-        total_qty = 0; spoilt_qty = 0; daily_dict = {}; spoilt_list = []
+        total_qty = 0; daily_dict = {}
 
         for row in range(4, 35):
-            cell = ws.cell(row=row, column=col)
-            val = clean_num(cell.value)
-            day = row - 3
-            daily_dict[day] = val
-            fill = str(cell.fill.start_color.index)
-            if fill in ['FFFF0000', '2'] and val > 0:
-                spoilt_qty += val; spoilt_list.append((day, val))
-            else:
-                total_qty += val
+            val = clean_num(ws.cell(row=row, column=col).value)
+            day = row - 3; daily_dict[day] = val
+            total_qty += val
 
-        revenue = total_qty * rate
         all_data.append({
-            "name": name, "billed_qty": total_qty, "spoilt_qty": spoilt_qty,
-            "rate": rate, "total_bill": revenue, "lost_revenue": spoilt_qty * rate,
-            "prepaid": prepaid, "balance": revenue - prepaid,
-            "daily_liters": daily_dict, "spoilt_details": spoilt_list
+            "name": name, "billed_qty": total_qty, "rate": rate, 
+            "total_bill": total_qty * rate, "lost_revenue": 0,
+            "prepaid": prepaid, "balance": (total_qty * rate) - prepaid,
+            "daily_liters": daily_dict, "spoilt_qty": 0, "spoilt_details": []
         })
     return all_data
 
@@ -159,88 +149,52 @@ def get_month_data(ws):
 st.set_page_config(page_title="Amani Dairies Dashboard", layout="wide")
 st.title("🥛 Amani Dairies Performance Tracker")
 
-c1, c2 = st.columns([1, 1])
-with c1:
-    if st.button("🔄 Sync with Google Sheet", use_container_width=True):
-        try:
-            with st.spinner("Fetching full 2024-2026 data..."):
-                # Use a timestamp to prevent cached old data from showing
-                refresh_url = f"{GOOGLE_SHEET_URL}&nocache={int(time.time())}"
-                response = requests.get(refresh_url, timeout=45)
-                if response.status_code == 200:
-                    st.session_state['data_file'] = io.BytesIO(response.content)
-                    st.success("Cloud Sync Successful!")
-                else: st.error("Failed to reach Google Sheet.")
-        except Exception as e: st.error(f"Sync Error: {e}")
-
-with c2:
-    uploaded_file = st.file_uploader("Or Upload Manual Excel File", type=["xlsx", "xlsm"])
-    if uploaded_file: st.session_state['data_file'] = uploaded_file
+if st.button("🔄 Sync with Google Sheet", use_container_width=True):
+    try:
+        with st.spinner("Connecting to Google Cloud (Large Workbook Mode)..."):
+            # Added retry logic and longer timeout for the "Premature Response" error
+            session = requests.Session()
+            adapter = requests.adapters.HTTPAdapter(max_retries=3)
+            session.mount('https://', adapter)
+            
+            response = session.get(f"{GOOGLE_SHEET_URL}&t={int(time.time())}", timeout=60, stream=True)
+            if response.status_code == 200:
+                st.session_state['data_file'] = io.BytesIO(response.content)
+                st.success("Full 2024-2026 Sync Successful!")
+            else: st.error(f"Cloud Sync failed (Status {response.status_code})")
+    except Exception as e: st.error(f"Sync Error: {e}")
 
 if 'data_file' in st.session_state:
     wb = openpyxl.load_workbook(st.session_state['data_file'], data_only=True)
-    
     all_months_results = {}
-    
-    # --- SIDEBAR INSPECTOR ---
+
+    # Sidebar Inspector for Debugging
     with st.sidebar:
-        st.subheader("Sheet Status")
+        st.subheader("Workbook Inspector")
         for s in wb.sheetnames:
-            is_internal = any(x in s.lower() for x in ["summary", "data", "client", "list", "total"])
-            if is_internal:
-                st.write(f"📁 Internal: {s}")
-                continue
-            
             data = get_month_data(wb[s])
             if data:
                 all_months_results[s] = data
-                st.write(f"✅ Found: {s}")
-            else:
-                st.write(f"⚠️ No Data Found: {s}")
+                st.write(f"✅ {s}")
+            else: st.write(f"⚪ {s} (Skipped)")
 
     if not all_months_results:
-        st.warning("No valid billing sheets found. Check Column J and Row 2.")
+        st.warning("No data found. Check Column J/Row 2 on your sheets.")
     else:
-        # --- CHRONOLOGICAL SORTING ---
+        # Improved Sort: 2026 first, 2025 second, etc.
         def sort_key(name):
-            year_match = re.search(r'20\d{2}', name)
-            year = int(year_match.group(0)) if year_match else 0
-            months = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"]
-            m_weight = 0
-            for i, m in enumerate(months):
-                if m in name.lower(): m_weight = i + 1; break
-            return (year, m_weight)
+            year = re.search(r'20\d{2}', name)
+            y_val = int(year.group(0)) if year else 0
+            m_map = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,"jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
+            m_val = 0
+            for k, v in m_map.items():
+                if k in name.lower(): m_val = v; break
+            return (y_val, m_val)
 
         sorted_months = sorted(list(all_months_results.keys()), key=sort_key, reverse=True)
-
-        st.header("📊 Cumulative Business Overview")
-        total_rev = sum(sum(c['total_bill'] for c in data) for data in all_months_results.values())
-        total_loss = sum(sum(c['lost_revenue'] for c in data) for data in all_months_results.values())
-        total_liters = sum(sum(c['billed_qty'] for c in data) for data in all_months_results.values())
-        
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Lifetime Revenue", f"KES {total_rev:,.0f}")
-        m2.metric("Revenue Lost (Spoilage)", f"KES {total_loss:,.0f}", delta=f"{(total_loss/(total_rev+1)*100):.1f}% Loss", delta_color="inverse")
-        m3.metric("Liters Supplied", f"{total_liters:,.1f} L")
-        m4.metric("Active Billing Months", len(all_months_results))
-
-        st.divider()
-        chart_data = [{"Month": m, "Revenue": sum(c['total_bill'] for c in data), "Loss": sum(c['lost_revenue'] for c in data)} for m, data in all_months_results.items()]
-        df_trends = pd.DataFrame(chart_data)
-        
-        c_left, c_right = st.columns(2)
-        with c_left: st.plotly_chart(px.bar(df_trends, x="Month", y=["Revenue", "Loss"], barmode="group", title="Revenue vs. Spoilage Loss", color_discrete_map={"Revenue": "#102B55", "Loss": "#C80000"}), use_container_width=True)
-        with c_right:
-            cust_totals = {}
-            for m_data in all_months_results.values():
-                for c in m_data: cust_totals[c['name']] = cust_totals.get(c['name'], 0) + c['total_bill']
-            df_cust = pd.DataFrame(list(cust_totals.items()), columns=['Customer', 'Revenue']).sort_values("Revenue", ascending=False).head(10)
-            st.plotly_chart(px.pie(df_cust, values='Revenue', names='Customer', title="Top 10 High-Value Clients"), use_container_width=True)
-
-        st.divider()
         target_month = st.selectbox("Select Month for Invoices:", sorted_months)
-        month_df = pd.DataFrame(all_months_results[target_month])
-        st.dataframe(month_df[['name', 'billed_qty', 'spoilt_qty', 'total_bill', 'prepaid', 'balance']], use_container_width=True)
+        
+        st.dataframe(pd.DataFrame(all_months_results[target_month])[['name', 'billed_qty', 'total_bill', 'prepaid', 'balance']], use_container_width=True)
 
         if st.button(f"📥 Download All Invoices for {target_month}"):
             zip_buffer = io.BytesIO()
