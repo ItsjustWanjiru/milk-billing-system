@@ -16,7 +16,6 @@ COLOR_PRIMARY = (16, 43, 85)
 COLOR_SECONDARY = (212, 175, 55) 
 COLOR_TEXT = (50, 50, 50) 
 
-# Your Direct Link
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/14ykcy9qOUPu-wLp7Xzp6SJWqVmXUzGAT/export?format=xlsx"
 
 class AmaniInvoice(FPDF):
@@ -34,7 +33,6 @@ class AmaniInvoice(FPDF):
 
     def draw_calendar_grid(self, daily_data, billed_month_str):
         try:
-            # Flexible parsing to handle "2026 April" or "May 2024"
             year_match = re.search(r'20\d{2}', billed_month_str)
             y = int(year_match.group(0)) if year_match else datetime.now().year
             base_date = datetime(y, 1, 1)
@@ -117,7 +115,6 @@ def clean_num(value):
 def get_month_data(ws):
     all_data = []
     if not isinstance(ws, Worksheet): return []
-    # Check if client names start at Column J (original logic)
     if not ws.cell(row=2, column=10).value: return []
 
     for col in range(10, ws.max_column + 1):
@@ -149,10 +146,11 @@ c1, c2 = st.columns([1, 1])
 with c1:
     if st.button("🔄 Sync with Google Sheet", use_container_width=True):
         try:
-            with st.spinner("Fetching full 2024-2026 workbook..."):
+            with st.spinner("Fetching data from Cloud..."):
                 session = requests.Session()
                 session.mount('https://', requests.adapters.HTTPAdapter(max_retries=3))
-                response = session.get(f"{GOOGLE_SHEET_URL}&nocache={int(time.time())}", timeout=60)
+                # Cache-busting ensures you don't get an old version of the file
+                response = session.get(f"{GOOGLE_SHEET_URL}&t={int(time.time())}", timeout=60)
                 if response.status_code == 200:
                     st.session_state['data_file'] = io.BytesIO(response.content)
                     st.success("Cloud Sync Successful!")
@@ -166,20 +164,16 @@ with c2:
 if 'data_file' in st.session_state:
     wb = openpyxl.load_workbook(st.session_state['data_file'], data_only=True)
     
-    # Updated sheet detection to be inclusive of all years
-    available_sheets = []
-    for s in wb.sheetnames:
-        is_internal = any(x in s.lower() for x in ["summary", "data", "client", "total", "template"])
-        if not is_internal:
-            available_sheets.append(s)
+    # WE REMOVED THE NUMERIC FILTER HERE TO SHOW ALL MONTHS
+    available_sheets = [s for s in wb.sheetnames if not any(x in s.lower() for x in ["summary", "data", "client", "total", "template"])]
     
-    with st.spinner("Processing Business Data..."):
+    with st.spinner("Calculating Business Stats..."):
         all_months_results = {sheet: get_month_data(wb[sheet]) for sheet in available_sheets if get_month_data(wb[sheet])}
 
     if not all_months_results:
-        st.warning("No billing sheets found. Check Column J.")
+        st.warning("No valid billing sheets found. Check Column J.")
     else:
-        # ORIGINAL SUMMARY METRICS
+        # --- BUSINESS OVERVIEW SECTION ---
         st.header("📊 Cumulative Business Overview")
         total_rev = sum(sum(c['total_bill'] for c in data) for data in all_months_results.values())
         total_loss = sum(sum(c['lost_revenue'] for c in data) for data in all_months_results.values())
@@ -193,7 +187,7 @@ if 'data_file' in st.session_state:
 
         st.divider()
         
-        # ORIGINAL CHART LOGIC
+        # --- VISUALIZATIONS SECTION ---
         chart_data = [{"Month": m, "Revenue": sum(c['total_bill'] for c in data), "Loss": sum(c['lost_revenue'] for c in data)} for m, data in all_months_results.items()]
         df_trends = pd.DataFrame(chart_data)
         c_left, c_right = st.columns(2)
@@ -207,7 +201,8 @@ if 'data_file' in st.session_state:
 
         st.divider()
         
-        # SORTING LOGIC: Newest years first
+        # --- INVOICE & TABLE SECTION ---
+        # Advanced Sort: Puts 2026/2025 at the top
         def sort_key(name):
             year = re.search(r'20\d{2}', name)
             y_val = int(year.group(0)) if year else 0
