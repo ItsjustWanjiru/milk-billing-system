@@ -3,3 +3,5 @@ openpyxl
 pandas
 plotly
 fpdf2
+gspread
+requests
