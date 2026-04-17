@@ -5,6 +5,7 @@ import pandas as pd
 import io
 import re
 import zipfile
+import requests
 import plotly.express as px
 from fpdf import FPDF
 from datetime import datetime, timedelta
@@ -13,6 +14,9 @@ from datetime import datetime, timedelta
 COLOR_PRIMARY = (16, 43, 85) 
 COLOR_SECONDARY = (212, 175, 55) 
 COLOR_TEXT = (50, 50, 50) 
+
+# Your Direct Link (Converted to Export format for Openpyxl)
+GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/14ykcy9qOUPu-wLp7Xzp6SJWqVmXUzGAT/export?format=xlsx"
 
 class AmaniInvoice(FPDF):
     def header(self):
@@ -148,7 +152,7 @@ def create_branded_pdf(cust_all_data, billed_month_str):
         spoilt_str = ", ".join([f"Day {d} ({q}L)" for d, q in cust_all_data['spoilt_details']])
         pdf.cell(0, 4, f"The following recorded milk was spoilt: {spoilt_str}. Total: {cust_all_data['spoilt_qty']:.1f}L.", ln=1)
 
-    # 5. PAYMENT BOX (Now floating immediately below)
+    # 5. PAYMENT BOX (Floating)
     pdf.ln(15)
     current_y = pdf.get_y()
     pdf.set_fill_color(252, 248, 227)
@@ -170,7 +174,6 @@ def create_branded_pdf(cust_all_data, billed_month_str):
 
     return pdf.output()
 
-# --- HELPER FUNCTIONS REMAIN THE SAME ---
 def clean_num(value):
     if value is None or str(value).strip() in ["", "-", "None"]:
         return 0.0
@@ -219,21 +222,42 @@ def get_month_data(ws):
         })
     return all_data
 
-# --- APP INTERFACE REMAINS THE SAME ---
+# --- APP INTERFACE ---
 st.set_page_config(page_title="Amani Dairies Dashboard", layout="wide")
 st.title("🥛 Amani Dairies Performance Tracker")
 
-uploaded_file = st.file_uploader("Upload Excel Workbook", type=["xlsx", "xlsm"])
+# DATA SOURCE SELECTION
+c1, c2 = st.columns([1, 1])
 
-if uploaded_file:
-    wb = openpyxl.load_workbook(uploaded_file, data_only=True)
+with c1:
+    if st.button("🔄 Sync with Google Sheet", use_container_width=True):
+        try:
+            with st.spinner("Fetching from Cloud..."):
+                response = requests.get(GOOGLE_SHEET_URL)
+                if response.status_code == 200:
+                    st.session_state['data_file'] = io.BytesIO(response.content)
+                    st.success("Cloud Sync Successful!")
+                else:
+                    st.error("Failed to reach Google Sheet.")
+        except Exception as e:
+            st.error(f"Sync Error: {e}")
+
+with c2:
+    uploaded_file = st.file_uploader("Or Upload Manual Excel File", type=["xlsx", "xlsm"])
+    if uploaded_file:
+        st.session_state['data_file'] = uploaded_file
+
+# PROCESS DATA
+if 'data_file' in st.session_state:
+    data_source = st.session_state['data_file']
+    wb = openpyxl.load_workbook(data_source, data_only=True)
     available_sheets = [s for s in wb.sheetnames if isinstance(wb[s], Worksheet) and any(char.isdigit() for char in s)]
     
-    with st.spinner("Crunching Data..."):
+    with st.spinner("Processing Sheets..."):
         all_months_results = {sheet: get_month_data(wb[sheet]) for sheet in available_sheets if get_month_data(wb[sheet])}
 
     if not all_months_results:
-        st.error("No valid data found. Ensure your client headers start in Column J.")
+        st.warning("No billing sheets found. Check Column J and sheet names.")
     else:
         st.header("📊 Cumulative Business Overview")
         total_rev = sum(sum(c['total_bill'] for c in data) for data in all_months_results.values())
@@ -263,7 +287,7 @@ if uploaded_file:
             st.plotly_chart(px.pie(df_cust, values='Revenue', names='Customer', title="Top 10 High-Value Clients"), use_container_width=True)
 
         st.divider()
-        target_month = st.selectbox("View Monthly Detail & Generate Invoices:", list(all_months_results.keys()))
+        target_month = st.selectbox("Select Month for Invoices:", list(all_months_results.keys()))
         month_df = pd.DataFrame(all_months_results[target_month])
         st.dataframe(month_df[['name', 'billed_qty', 'spoilt_qty', 'total_bill', 'prepaid', 'balance']], use_container_width=True)
 
