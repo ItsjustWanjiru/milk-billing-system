@@ -21,7 +21,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 # ---------------------------------------------------------------------------
 BUSINESS_NAME = "AMANI DAIRIES"
 TAGLINE = "Reliable - Fresh - Local"
-PAYMENT_METHOD = "M-PESA Pochi la Biashara"
+PAYMENT_METHOD = "M-PESA POCHI LA BIASHARA"
 PAYMENT_NUMBER = "0722 686 720"
 INVOICE_PREFIX = "AMD"
 PAYMENT_TERMS_DAYS = 7
@@ -331,169 +331,90 @@ def fetch_google_sheet(url):
 # ---------------------------------------------------------------------------
 # PDF INVOICE
 # ---------------------------------------------------------------------------
-# Invoice palette
-NAVY = COLOR_PRIMARY
-GOLD = COLOR_SECONDARY
-INK = (31, 41, 51)
-MUTED = (110, 120, 135)
-RULE = (222, 226, 233)
-TINT = (236, 241, 248)
-WEEKEND = (246, 247, 250)
-OUTSIDE_MONTH = (233, 235, 239)
-RED_TINT = (253, 236, 236)
-CREAM = (252, 248, 234)
-SOFT_WHITE = (200, 210, 228)
-PAGE_MARGIN = 14
+GRID_LINE = (60, 60, 60)
+CREAM = (252, 248, 227)
+OUTSIDE_MONTH = (225, 225, 225)
 
 
 class AmaniInvoice(FPDF):
-    def __init__(self, invoice_no=""):
+    def __init__(self):
         super().__init__(orientation="P", unit="mm", format="A4")
-        self.invoice_no = invoice_no
-        self.set_margins(PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN)
-        self.set_auto_page_break(auto=True, margin=20)
+        self.set_auto_page_break(auto=True, margin=15)
 
-    # ----- page furniture -----
     def header(self):
-        self.set_fill_color(*NAVY)
-        self.rect(0, 0, self.w, 36, style="F")
-        self.set_fill_color(*GOLD)
-        self.rect(0, 36, self.w, 1.2, style="F")
-
-        self.set_xy(PAGE_MARGIN, 10)
         self.set_font("Helvetica", "B", 22)
-        self.set_text_color(255, 255, 255)
-        self.cell(110, 10, BUSINESS_NAME)
-        self.set_xy(PAGE_MARGIN, 21)
-        self.set_font("Helvetica", "", 8.5)
-        self.set_text_color(*GOLD)
-        self.set_char_spacing(1.2)
-        self.cell(110, 5, TAGLINE.upper())
-        self.set_char_spacing(0)
-
-        self.set_xy(self.w - PAGE_MARGIN - 80, 9)
-        self.set_font("Helvetica", "B", 24)
-        self.set_text_color(255, 255, 255)
-        self.cell(80, 11, "INVOICE", align="R")
-        self.set_xy(self.w - PAGE_MARGIN - 80, 21)
-        self.set_font("Helvetica", "", 10)
-        self.set_text_color(*SOFT_WHITE)
-        self.cell(80, 5, self.invoice_no, align="R")
-        self.set_y(46)
+        self.set_text_color(*COLOR_PRIMARY)
+        self.cell(100, 10, BUSINESS_NAME)
+        self.set_font("Helvetica", "I", 10)
+        self.set_text_color(100, 100, 100)
+        self.cell(90, 10, TAGLINE, align="R", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.set_draw_color(*COLOR_SECONDARY)
+        self.set_line_width(0.8)
+        self.line(10, 20, 200, 20)
+        self.set_line_width(0.2)  # reset so table borders stay thin
+        self.ln(6)
 
     def footer(self):
-        y = self.h - 14
-        self.set_draw_color(*RULE)
-        self.set_line_width(0.3)
-        self.line(PAGE_MARGIN, y, self.w - PAGE_MARGIN, y)
-        self.set_font("Helvetica", "", 8)
-        self.set_text_color(*MUTED)
-        self.set_xy(PAGE_MARGIN, y + 2)
-        self.cell(100, 5, f"Thank you for choosing {BUSINESS_NAME.title()}.")
-        self.set_xy(self.w - PAGE_MARGIN - 80, y + 2)
-        self.cell(80, 5, f"{self.invoice_no}  |  Page {self.page_no()} of {{nb}}", align="R")
+        self.set_y(-12)
+        self.set_font("Helvetica", "I", 8)
+        self.set_text_color(130, 130, 130)
+        self.cell(0, 5, f"Thank you for choosing {BUSINESS_NAME.title()}.", align="C")
 
-    # ----- small building blocks -----
-    def small_label(self, x, y, text, color=MUTED, width=60):
-        self.set_xy(x, y)
-        self.set_font("Helvetica", "B", 7.5)
-        self.set_text_color(*color)
-        self.set_char_spacing(0.8)
-        self.cell(width, 4, text.upper())
-        self.set_char_spacing(0)
-
-    def section_title(self, text):
-        y = self.get_y()
-        self.small_label(PAGE_MARGIN, y, text, color=NAVY, width=100)
-        self.set_draw_color(*GOLD)
-        self.set_line_width(0.7)
-        self.line(PAGE_MARGIN, y + 5.5, PAGE_MARGIN + 12, y + 5.5)
-        self.set_line_width(0.2)
-        self.set_y(y + 8)
-
-    def fit_font(self, text, style, max_size, max_width):
-        """Use the largest font size (down to 9pt) that fits the width."""
-        size = max_size
-        while size > 9:
-            self.set_font("Helvetica", style, size)
-            if self.get_string_width(text) <= max_width:
-                break
-            size -= 0.5
-        self.set_font("Helvetica", style, size)
-
-    # ----- daily grid -----
     def draw_calendar_grid(self, customer, year, month):
         days_in_month = calendar.monthrange(year, month)[1] if (year and month) else 31
-        label_w = 16
-        day_w = (self.w - 2 * PAGE_MARGIN - label_w) / 31
+        label_w = 20
+        day_w = 170 / 31
         spoilt_days = {d for d, _ in customer["spoilt_details"]}
-        rows = [("Date", 5.5), ("Day", 4.5), ("Litres", 7)]
-        x0, y0 = PAGE_MARGIN, self.get_y()
 
+        self.set_font("Helvetica", "B", 9)
+        self.set_text_color(*COLOR_PRIMARY)
+        self.cell(0, 6, "DAILY CONSUMPTION BREAKDOWN", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.ln(1)
+        self.set_draw_color(*GRID_LINE)
         self.set_line_width(0.2)
-        self.set_draw_color(*RULE)
-        y = y0
+
+        rows = [("Date", 6.5), ("Day", 5.5), ("Litres", 7.5)]
         for r, (label, h) in enumerate(rows):
-            self.set_xy(x0, y)
-            self.set_font("Helvetica", "B", 6.5)
-            self.set_text_color(*NAVY)
-            self.set_fill_color(*TINT)
-            self.cell(label_w, h, label.upper(), border=1, align="C", fill=True)
-
+            self.set_font("Helvetica", "B", 8)
+            self.set_text_color(*COLOR_PRIMARY)
+            self.cell(label_w, h, label, border=1, align="C")
             for d in range(1, 32):
-                in_month = d <= days_in_month
-                known = bool(year and month and in_month)
-                weekend = known and date(year, month, d).weekday() >= 5
-
-                if not in_month:
-                    fill = OUTSIDE_MONTH
-                elif r == 2 and d in spoilt_days:
-                    fill = RED_TINT
-                elif r == 0:
-                    fill = TINT
-                elif weekend:
-                    fill = WEEKEND
+                if d > days_in_month:
+                    self.set_fill_color(*OUTSIDE_MONTH)
+                    self.cell(day_w, h, "", border=1, fill=True)
+                    continue
+                if r == 0:
+                    self.set_font("Helvetica", "B", 8)
+                    self.set_text_color(*COLOR_PRIMARY)
+                    text = str(d)
+                elif r == 1:
+                    self.set_font("Helvetica", "", 6.5)
+                    self.set_text_color(70, 70, 70)
+                    text = date(year, month, d).strftime("%a")[:2] if (year and month) else ""
                 else:
-                    fill = None
-
-                text, style, size, color = "", "", 6, MUTED
-                if in_month and r == 0:
-                    text, style, size, color = str(d), "B", 6.5, NAVY
-                elif known and r == 1:
-                    text, size = date(year, month, d).strftime("%a")[:2], 5.5
-                elif in_month and r == 2:
                     qty = customer["daily_liters"].get(d, 0)
                     if qty > 0:
-                        text, style, size = fmt_qty(qty), "B", 7
-                        color = COLOR_ALERT if d in spoilt_days else INK
+                        text = fmt_qty(qty)
+                        size = 9
+                        self.set_font("Helvetica", "B", size)
+                        while self.get_string_width(text) > day_w - 0.8 and size > 6:
+                            size -= 0.5
+                            self.set_font("Helvetica", "B", size)
+                        self.set_text_color(*(COLOR_ALERT if d in spoilt_days else (0, 0, 0)))
                     else:
-                        text, size, color = "-", 7, (190, 195, 205)
+                        text = "-"
+                        self.set_font("Helvetica", "", 9)
+                        self.set_text_color(150, 150, 150)
+                self.cell(day_w, h, text, border=1, align="C")
+            self.ln(h)
 
-                if fill:
-                    self.set_fill_color(*fill)
-                self.set_xy(x0 + label_w + (d - 1) * day_w, y)
-                self.set_font("Helvetica", style, size)
-                self.set_text_color(*color)
-                self.cell(day_w, h, text, border=1, align="C", fill=bool(fill))
-            y += h
-
-        # Legend
-        ly = y + 2
-        self.set_font("Helvetica", "", 7)
-        self.set_text_color(*MUTED)
-        lx = x0
-        legend = [(WEEKEND, "Weekend")]
         if spoilt_days:
-            legend.append((RED_TINT, "Spoilt, not charged"))
-        for color, label in legend:
-            self.set_fill_color(*color)
-            self.set_draw_color(*RULE)
-            self.rect(lx, ly + 0.7, 3, 3, style="DF")
-            self.set_xy(lx + 4, ly)
-            w = self.get_string_width(label) + 1
-            self.cell(w, 4.5, label)
-            lx += 4 + w + 6
-        self.set_y(ly + 10)
+            self.ln(1.5)
+            self.set_font("Helvetica", "", 7.5)
+            self.set_text_color(*COLOR_ALERT)
+            self.cell(0, 4, "Figures in red were spoilt and are not charged.",
+                      new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.ln(7)
 
 
 def create_branded_pdf(customer, sheet_name, invoice_no, issue_date):
@@ -503,182 +424,121 @@ def create_branded_pdf(customer, sheet_name, invoice_no, issue_date):
     due_date = issue_date + timedelta(days=PAYMENT_TERMS_DAYS)
     balance = customer["balance"]
     if balance >= 0.005:
-        status, card_note, total_label = "Amount Due", f"Due by {due_date:%d %b %Y}", "TOTAL DUE"
+        status, status_color, total_label = "BALANCE DUE", COLOR_ALERT, "TOTAL DUE:"
     elif balance <= -0.005:
-        status, card_note, total_label = "Credit Balance", "No payment needed", "CREDIT BALANCE"
+        status, status_color, total_label = "CREDIT BALANCE", COLOR_PRIMARY, "CREDIT BALANCE:"
     else:
-        status, card_note, total_label = "Paid in Full", "Thank you", "BALANCE"
+        status, status_color, total_label = "PAID IN FULL", COLOR_PRIMARY, "BALANCE:"
 
-    pdf = AmaniInvoice(invoice_no)
+    pdf = AmaniInvoice()
     pdf.add_page()
-    right_edge = pdf.w - PAGE_MARGIN
-    top = pdf.get_y()
+    top = 26
 
-    # --- Billed to ---
-    pdf.small_label(PAGE_MARGIN, top, "Billed to")
-    pdf.set_xy(PAGE_MARGIN, top + 5)
+    # --- Bill to (left) ---
+    pdf.set_xy(10, top)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_text_color(*COLOR_PRIMARY)
+    pdf.cell(95, 5, "BILL TO:", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_font("Helvetica", "B", 14)
-    pdf.set_text_color(*NAVY)
-    pdf.multi_cell(66, 6.5, make_safe(customer["name"]), align="L")
+    pdf.set_text_color(*COLOR_TEXT)
+    pdf.multi_cell(95, 7, make_safe(customer["name"]), align="L")
 
-    # --- Dates ---
+    # --- Invoice details (right) ---
     details = [
-        ("Billing period", make_safe(sheet_name)),
-        ("Invoice date", issue_date.strftime("%d %b %Y")),
-        ("Due date", due_date.strftime("%d %b %Y")),
+        ("INVOICE NO:", invoice_no),
+        ("BILLING PERIOD:", make_safe(sheet_name).upper()),
+        ("INVOICE DATE:", issue_date.strftime("%d %b %Y")),
+        ("DUE DATE:", due_date.strftime("%d %b %Y")),
     ]
     for i, (label, value) in enumerate(details):
-        y = top + i * 10
-        pdf.small_label(86, y, label, width=52)
-        pdf.set_xy(86, y + 4)
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.set_text_color(*INK)
-        pdf.cell(52, 5, value)
+        pdf.set_xy(110, top + i * 5.5)
+        pdf.set_font("Helvetica", "B", 8.5)
+        pdf.set_text_color(*COLOR_PRIMARY)
+        pdf.cell(40, 5.5, label, align="R")
+        pdf.set_font("Helvetica", "", 9.5)
+        pdf.set_text_color(*COLOR_TEXT)
+        pdf.cell(50, 5.5, value, align="R")
 
-    # --- Amount card ---
-    card_x, card_w = right_edge - 52, 52
-    pdf.set_fill_color(*NAVY)
-    pdf.rect(card_x, top - 1, card_w, 30, style="F")
-    pdf.set_fill_color(*GOLD)
-    pdf.rect(card_x, top - 1, card_w, 1.2, style="F")
-    pdf.small_label(card_x + 4, top + 3, status, color=GOLD, width=card_w - 8)
-    amount_text = f"KES {fmt(abs(balance))}"
-    pdf.fit_font(amount_text, "B", 16, card_w - 8)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_xy(card_x + 4, top + 9)
-    pdf.cell(card_w - 8, 9, amount_text)
-    pdf.set_font("Helvetica", "", 8)
-    pdf.set_text_color(*SOFT_WHITE)
-    pdf.set_xy(card_x + 4, top + 20)
-    pdf.cell(card_w - 8, 5, card_note)
+    # --- Balance (large figure with gold underline) ---
+    pdf.set_xy(130, top + 25)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_text_color(*COLOR_PRIMARY)
+    pdf.cell(70, 5, status, align="R")
+    pdf.set_xy(110, top + 30)
+    pdf.set_font("Helvetica", "B", 20)
+    pdf.set_text_color(*status_color)
+    pdf.cell(90, 10, f"KES {fmt(abs(balance))}", align="R")
+    pdf.set_draw_color(*COLOR_SECONDARY)
+    pdf.set_line_width(0.8)
+    pdf.line(150, top + 41.5, 200, top + 41.5)
+    pdf.set_line_width(0.2)
 
-    # --- Daily deliveries ---
-    pdf.set_y(top + 38)
-    pdf.section_title("Daily deliveries")
+    # --- Daily grid ---
+    pdf.set_xy(10, max(top + 48, pdf.get_y() + 6))
     pdf.draw_calendar_grid(customer, year, month)
 
     # --- Line items ---
-    widths = [86, 30, 30, right_edge - PAGE_MARGIN - 146]
-    pdf.set_fill_color(*TINT)
-    pdf.set_text_color(*NAVY)
-    pdf.set_font("Helvetica", "B", 7.5)
-    pdf.set_char_spacing(0.6)
-    for w, text, align in zip(widths, ["  DESCRIPTION", "QTY (L)", "RATE (KES)", "AMOUNT (KES)  "], "LRRR"):
-        pdf.cell(w, 8, text, align=align, fill=True)
-    pdf.set_char_spacing(0)
-    pdf.ln(8)
-
-    row_y = pdf.get_y()
-    pdf.set_xy(PAGE_MARGIN + 2, row_y + 2)
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.set_text_color(*INK)
-    pdf.cell(80, 5, "Fresh milk supplied")
-    pdf.set_xy(PAGE_MARGIN + 2, row_y + 7)
-    pdf.set_font("Helvetica", "", 8)
-    pdf.set_text_color(*MUTED)
-    pdf.cell(80, 4, f"Deliveries for {make_safe(sheet_name)}")
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(*INK)
-    x = PAGE_MARGIN + widths[0]
-    for w, text in zip(widths[1:], [f"{customer['billed_qty']:.1f}", fmt(customer["rate"]),
-                                     f"{fmt(customer['total_bill'])}  "]):
-        pdf.set_xy(x, row_y)
-        pdf.cell(w, 13, text, align="R")
-        x += w
-    pdf.set_draw_color(*RULE)
-    pdf.set_line_width(0.3)
-    pdf.line(PAGE_MARGIN, row_y + 13, right_edge, row_y + 13)
-
-    # --- Totals (right) ---
-    block_y = row_y + 18
-    tx, tw = right_edge - 82, 82
-    total_rows = [("Subtotal (this month)", fmt(customer["total_bill"]))]
-    if customer["previous_balance"] > 0:
-        total_rows.append(("Previous unpaid balance", fmt(customer["previous_balance"])))
-    else:
-        total_rows.append(("Pre-paid", f"- {fmt(customer['prepaid'])}"))
-    y = block_y
-    for label, value in total_rows:
-        pdf.set_xy(tx, y)
-        pdf.set_font("Helvetica", "", 9)
-        pdf.set_text_color(*MUTED)
-        pdf.cell(46, 7, label)
-        pdf.set_font("Helvetica", "B", 9.5)
-        pdf.set_text_color(*INK)
-        pdf.cell(tw - 46, 7, value, align="R")
-        y += 7
-    y += 2
-    pdf.set_fill_color(*NAVY)
-    pdf.rect(tx, y, tw, 12, style="F")
-    pdf.set_xy(tx + 3, y)
-    pdf.set_font("Helvetica", "B", 9)
-    pdf.set_text_color(*GOLD)
-    pdf.set_char_spacing(0.8)
-    pdf.cell(36, 12, total_label)
-    pdf.set_char_spacing(0)
-    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_draw_color(*GRID_LINE)
+    pdf.set_fill_color(*COLOR_PRIMARY)
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(tw - 42, 12, f"KES {fmt(abs(balance))}", align="R")
-    totals_end = y + 12
+    pdf.set_font("Helvetica", "B", 9.5)
+    pdf.cell(80, 9, "  Description", border=1, align="L", fill=True)
+    pdf.cell(30, 9, "Total Qty (L)", border=1, align="C", fill=True)
+    pdf.cell(30, 9, "Rate (KES)", border=1, align="C", fill=True)
+    pdf.cell(50, 9, "Total (KES)  ", border=1, align="R", fill=True, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Helvetica", "", 10.5)
+    pdf.cell(80, 11, "  Fresh Milk Supplied", border=1)
+    pdf.cell(30, 11, f"{customer['billed_qty']:.1f}", border=1, align="C")
+    pdf.cell(30, 11, fmt(customer["rate"]), border=1, align="C")
+    pdf.set_font("Helvetica", "B", 10.5)
+    pdf.cell(50, 11, f"{fmt(customer['total_bill'])}  ", border=1, align="R",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-    # --- Spoilt milk note (left) ---
-    note_end = block_y
-    if customer["spoilt_qty"] > 0:
-        nx, nw = PAGE_MARGIN, tx - PAGE_MARGIN - 8
-        days_text = ", ".join(f"Day {d} ({fmt_qty(q)}L)" for d, q in customer["spoilt_details"])
-        body = (
-            f"These deliveries were recorded as spoilt and were not charged: {days_text}. "
-            f"Total: {fmt_qty(customer['spoilt_qty'])}L."
-        )
-        pdf.set_font("Helvetica", "", 8)
-        lines = pdf.multi_cell(nw - 9, 4, body, align="L", dry_run=True, output="LINES")
-        box_h = 11 + 4 * len(lines)
-        pdf.set_fill_color(*RED_TINT)
-        pdf.rect(nx, block_y, nw, box_h, style="F")
-        pdf.set_fill_color(*COLOR_ALERT)
-        pdf.rect(nx, block_y, 1.2, box_h, style="F")
-        pdf.small_label(nx + 5, block_y + 3, "Spoilt milk, not charged", color=COLOR_ALERT, width=nw - 9)
-        pdf.set_xy(nx + 5, block_y + 8)
-        pdf.set_font("Helvetica", "", 8)
-        pdf.set_text_color(*INK)
-        pdf.multi_cell(nw - 9, 4, body, align="L")
-        note_end = block_y + box_h
+    # --- Totals ---
+    y = pdf.get_y() + 3
+    total_rows = [("Sub-Total:", fmt(customer["total_bill"]))]
+    if customer["previous_balance"] > 0:
+        total_rows.append(("Previous Unpaid Balance:", fmt(customer["previous_balance"])))
+    else:
+        total_rows.append(("Pre-Paid:", f"- {fmt(customer['prepaid'])}"))
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(*COLOR_TEXT)
+    for label, value in total_rows:
+        pdf.set_xy(110, y)
+        pdf.cell(50, 6.5, label, align="R")
+        pdf.cell(40, 6.5, value, align="R")
+        y += 6.5
+    y += 1
+    pdf.set_xy(110, y)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_draw_color(*COLOR_PRIMARY)
+    pdf.set_text_color(*COLOR_PRIMARY)
+    pdf.cell(50, 10, total_label, border="T", align="R")
+    pdf.cell(40, 10, f"KES {fmt(abs(balance))}", border="T", align="R")
+    y += 10
 
-    # --- How to pay ---
-    py = max(totals_end, note_end) + 10
-    if py + 32 > pdf.h - 20:
+    # --- Payment method ---
+    py = y + 14
+    if py + 18 > pdf.h - 15:
         pdf.add_page()
         py = pdf.get_y()
-    pw = right_edge - PAGE_MARGIN
-    pdf.set_fill_color(*CREAM)
-    pdf.rect(PAGE_MARGIN, py, pw, 32, style="F")
-    pdf.set_fill_color(*GOLD)
-    pdf.rect(PAGE_MARGIN, py, 1.5, 32, style="F")
-
-    pdf.small_label(PAGE_MARGIN + 7, py + 5, "How to pay", color=NAVY)
-    pdf.set_xy(PAGE_MARGIN + 7, py + 11)
-    pdf.set_font("Helvetica", "B", 10.5)
-    pdf.set_text_color(*INK)
-    pdf.cell(80, 5, PAYMENT_METHOD)
-    pdf.set_xy(PAGE_MARGIN + 7, py + 18)
+    pdf.set_draw_color(*COLOR_PRIMARY)
+    pdf.set_line_width(0.6)
+    pdf.rect(10, py, 190, 18)
+    pdf.set_line_width(0.2)
+    pdf.set_fill_color(*COLOR_SECONDARY)
+    pdf.rect(10, py, 3, 18, style="F")
+    pdf.set_xy(18, py + 4)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_text_color(*COLOR_PRIMARY)
+    pdf.cell(80, 4, "PAYMENT METHOD")
+    pdf.set_xy(18, py + 9)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(80, 6, PAYMENT_METHOD)
+    pdf.set_xy(110, py + 4.5)
     pdf.set_font("Helvetica", "B", 20)
-    pdf.set_text_color(*NAVY)
-    pdf.cell(80, 9, PAYMENT_NUMBER)
-
-    divider_x = PAGE_MARGIN + 92
-    pdf.set_draw_color(*GOLD)
-    pdf.set_line_width(0.3)
-    pdf.line(divider_x, py + 6, divider_x, py + 26)
-    steps = [
-        "1.  Open M-PESA and select Lipa na M-PESA",
-        "2.  Choose Pochi la Biashara",
-        f"3.  Enter {PAYMENT_NUMBER}, the amount and your PIN",
-    ]
-    pdf.set_font("Helvetica", "", 8.5)
-    pdf.set_text_color(*INK)
-    for i, step in enumerate(steps):
-        pdf.set_xy(divider_x + 6, py + 7 + i * 6.5)
-        pdf.cell(right_edge - divider_x - 8, 5, step)
+    pdf.cell(85, 9, PAYMENT_NUMBER, align="R")
 
     return bytes(pdf.output())
 
