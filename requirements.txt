@@ -1,7 +1,7 @@
-streamlit
-openpyxl
-pandas
-plotly
-fpdf2
-gspread
-requests
+streamlit>=1.37
+openpyxl>=3.1
+pandas>=2.0
+plotly>=5.18
+fpdf2>=2.7.6
+requests>=2.31
+tzdata
