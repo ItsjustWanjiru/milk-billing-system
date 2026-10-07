@@ -1,0 +1,14 @@
+# Amani Dairies colours for Streamlit's light and dark modes.
+# Viewers switch between them from the ⋮ menu > Settings.
+
+[theme.light]
+primaryColor = "#102B55"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F4F8"
+textColor = "#1F2933"
+
+[theme.dark]
+primaryColor = "#4C7DD1"
+backgroundColor = "#0E1624"
+secondaryBackgroundColor = "#1A2538"
+textColor = "#E6EAF0"
